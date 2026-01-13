@@ -1,0 +1,96 @@
+# Doorlock controller
+
+## Introduction
+
+This is a daemon application written in Go. It is meant to provide the glue between other types of services, resulting in an open source, reservation-based access control system for physical locations.
+
+### Components
+
+MQTT broker::
+A service such as https://mosquitto.org/[Mosquitto], allowing clients to either publish messages or to subscribe to messages, identified by unique _topics_. The message format is application-defined.
+
+card reader::
+A module containing a microcontroller and and NFC chip, to verify presented NFC badges or cards. Those cards are programmed with unique user IDs. The module is communicating via https://en.wikipedia.org/wiki/MQTT[MQTT] exclusively, announcing verified IDs to a broker. See https://github.com/cptnpopcorn/doorlock
+
+door opener::
+Another, similar module controlling a relay that actuates an electric opener upon receiving a dedicated MQTT message from the broker. See https://github.com/cptnpopcorn/doorlock
+
+Librebooking::
+An open source web-based reservation system, backed by a SQL database, usually https://mariadb.org/[mariadab]. See https://github.com/LibreBooking
+
+Doorlock controller (_this one_)::
+A daemon application that subscribes to the common MQTT broker on any card reader messages (assuming a specific topic structure). The message is expected to contain a public random user ID matching the `public_id` of the Librebooking database. The message topic contains the name of a resource that is present in the database as well. The database is queried for those inputs - if there is an active reservation for that resource by that user at the current time, a matching MQTT message is published and addressed to the corresponding door opener, so that the door will open.
+
+## MQTT topic conventions
+
+[#reader]
+### card reader
+
+The card reader is expected to publish IDs read from a presented card for a topic like
+
+----
+/site/mysite/room/myroom/door/mydoor/cardreader/card-presented
+----
+
+mysite::
+Your house, building complex, department or whatever, you name it
+
+myroom::
+The area (typically a room) you want to restrict access to. This is expected to match **exactly** the name of your Librebooking _resource_ you allow to make reservations for.
+
+mydoor::
+As rooms _may_ have more than one door, it's wise to distinguish them. It doesn't matter how you name them, you just have to match that name in the corresponding door openers topic as well.
+
+The card reader message is expected to contain valid JSON. Only one attribute is required, an `ID` of type `string`. Librebooking uses 20-digit strings containing 10 hex-formatted octets for its `public_id`.
+
+[#opener]
+### door opener
+
+The door opener is epxected to listen to open messages, defining their topic like
+
+----
+/site/mysite/room/myroom/door/mydoor/doorcontroller/open
+----
+
+The same meanings as for the <<reader>> apply. An opener subscribing to the "same door" as its corresponding card reader, will automatically get open messages everytime the ID presented at that same _door_ could be matched to an active reservation for their _room_.
+
+## Command line options
+
+You can always show the available options using `--help`.
+
+### MQTT options
+
+`--mqtt-broker <host>`::
+For unsecure communication, just put the hostname or an IP address. For a TLS secured setup, you'll not only need to define certificates and a private (client) key, but also prefix the hostname like `tls://mybroker.mynet`
+
+`--mqtt-user <username>` and `--mqtt-pass <password>`::
+If you use MQTT user authentication, it's a good idea to also secure your messages, otherwise that stuff travels everywhere in clear, visible to everyone. Might be OK inside a container environment.
+
+`--ca-file <ca.crt> --client-cert <client.crt> --client-key <client.key>`::
+For TLS protected communication, provide the MQTT server's authority (to verify the servers public key certificate), and the public and private parts of your client key if client authentication is configured. Do not forget to use the TLS protocol prefix for the hostname, as well.
+
+`--site <mysite>`::
+To allow for better separation of concerns with a single MQTT broker, you need to specify the main component of the MQTT topic, your _site_ this daemon will take car of. Running multiple daemons allows linking different sites to different instances of Librebooking, if required.
+
+## Librebooking options
+
+`--db-host <host:port>`::
+The host running the SQL DB backend for Librebooking.
+
+`--db-name <librebooking>`::
+Very probably _librebooking_ (default), or whatever you configured in the Librebooking DB options.
+
+`--db-user <username>` and `--db-pass <password>`::
+Those have to match the ones configured in Librebooking, or any custom DB user having read access the the Librebooking database.
+
+## Practical considerations
+
+Typically you would want to run all this stuff in containers, nicely glueing them together in compose scripts. See my https://github.com/cptnpopcorn/eco-services[local services project] environment where all this is running smoothly together.
+
+For security aspects, the Librebooking database does not need to be visible anywhere but inside the internal docker network.
+
+But with the card reader and door opener out in the wild, MQTT really needs to be TLS-enabled. And to prevent easy tampering with the doors, clients need to be authenticated. So you'll end up setting up a key infrastructure and using every last of those MQTT options ;)
+
+Whether you actually need MQTT users depends on how much you trust your MQTT applications not to mess up with unrelated topics or whether you are apt to mistyping them in their setup. In that case, user based access restrictions may provide another safeguard. Like, only cardreader users may publish for `../cardreader/..` topics etc.
+
+Nothing really protects from human mistakes, there is always a way to mess up things. But with MQTT using TLS and the database being only visible to related docker services, you can at least keep unauthorized parties from tampering.

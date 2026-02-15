@@ -46,7 +46,7 @@ The card reader message is expected to contain valid JSON. Only one attribute is
 [#opener]
 ### door opener
 
-The door opener is epxected to listen to open messages, defining their topic like
+The door opener is expected to listen to open messages, defining their topic like
 
 ----
 /site/mysite/room/myroom/door/mydoor/doorcontroller/open
@@ -92,5 +92,6 @@ For security aspects, the Librebooking database does not need to be visible anyw
 But with the card reader and door opener out in the wild, MQTT really needs to be TLS-enabled. And to prevent easy tampering with the doors, clients need to be authenticated. So you'll end up setting up a key infrastructure and using every last of those MQTT options ;)
 
 Whether you actually need MQTT users depends on how much you trust your MQTT applications not to mess up with unrelated topics or whether you are apt to mistyping them in their setup. In that case, user based access restrictions may provide another safeguard. Like, only cardreader users may publish for `../cardreader/..` topics etc.
+
 
 Nothing really protects from human mistakes, there is always a way to mess up things. But with MQTT using TLS and the database being only visible to related docker services, you can at least keep unauthorized parties from tampering.

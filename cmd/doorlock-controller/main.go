@@ -64,7 +64,10 @@ func main() {
 		SetClientID(*site + "-doorlock-controller").
 		SetUsername(*mqttUser).
 		SetPassword(*mqttPass).
-		SetTLSConfig(tlsConfig)
+		SetTLSConfig(tlsConfig).
+		SetConnectionLostHandler(func(c mqtt.Client, err error) {
+			log.Fatalf("MQTT connection lost: %v", err)
+		})
 
 	client := mqtt.NewClient(opts)
 

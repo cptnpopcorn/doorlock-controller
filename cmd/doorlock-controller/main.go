@@ -122,7 +122,7 @@ func main() {
 			}
 
 			topicPub := fmt.Sprintf("site/%s/room/%s/door/%s/doorcontroller/open", *site, room, door)
-			token := c.Publish(topicPub, 0, false, payloadPub)
+			token := c.Publish(topicPub, 1, false, payloadPub)
 			token.Wait()
 			log.Printf("Signaled door open for user %s", reservation.Username)
 		} else {
@@ -132,7 +132,7 @@ func main() {
 
 	topicSub := fmt.Sprintf("site/%s/room/+/door/+/cardreader/card-presented", *site)
 
-	if token := client.Subscribe(topicSub, 0, messageHandler); token.Wait() && token.Error() != nil {
+	if token := client.Subscribe(topicSub, 1, messageHandler); token.Wait() && token.Error() != nil {
 		log.Fatalf("Subscribe error: %v", token.Error())
 	}
 	log.Printf("Subscribed to topic: %s", topicSub)
@@ -170,7 +170,7 @@ func reservation(username string) ReservationQueryResult {
 func checkReservation(db *sql.DB, room string, id string) (ReservationQueryResult, error) {
 	query := `select concat(u.fname, ' ', u.lname) as user from users u
 		inner join reservation_users ru on ru.user_id = u.user_id and u.public_id = ?
-		inner join reservation_instances ri on ri.reservation_instance_id = ru.reservation_instance_id and ri.start_date <= now() and ri.end_date > now()
+		inner join reservation_instances ri on ri.reservation_instance_id = ru.reservation_instance_id and ri.start_date <= UTC_TIMESTAMP() and ri.end_date > UTC_TIMESTAMP()
 		inner join reservation_resources rr on rr.series_id = ri.series_id
 		inner join resources r on r.resource_id = rr.resource_id and r.name = ?
 		limit 1`

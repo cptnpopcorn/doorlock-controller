@@ -173,6 +173,8 @@ func checkReservation(db *sql.DB, room string, id string) (ReservationQueryResul
 		inner join reservation_instances ri on ri.reservation_instance_id = ru.reservation_instance_id and ri.start_date <= UTC_TIMESTAMP() and ri.end_date > UTC_TIMESTAMP()
 		inner join reservation_resources rr on rr.series_id = ri.series_id
 		inner join resources r on r.resource_id = rr.resource_id and r.name = ?
+		inner join reservation_series rs on rs.series_id = ri.series_id
+		inner join reservation_statuses st on st.status_id = rs.status_id and st.label = 'Created'
 		limit 1`
 
 	var username string

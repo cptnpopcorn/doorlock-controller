@@ -15,6 +15,7 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 )
 
 type IdPayload struct {
@@ -30,6 +31,7 @@ func main() {
 	log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
 
 	site := flag.String("site", "mysite", `site name to form MQTT location "site/<site>/room/+/door/+/cardreader/card-presented"`)
+	clientSuffix := flag.String("client-suffix", "", `MQTT client name suffix, will use random UUID by default`)
 
 	mqttBroker := flag.String("mqtt-broker", "ssl://mqtt:8883", "MQTT broker URI (e.g. ssl://mosquitto:8883)")
 	mqttUser := flag.String("mqtt-user", "", "MQTT username")
@@ -58,10 +60,17 @@ func main() {
 		log.Fatalf("Failed to load TLS config: %v", err)
 	}
 
+	suffix := *clientSuffix
+	if suffix == "" {
+		suffix = uuid.NewString()
+	}
+
+	clientId := "doorlock-controller-" + *site + "-" + suffix
+
 	// MQTT client setup
 	opts := mqtt.NewClientOptions().
 		AddBroker(*mqttBroker).
-		SetClientID(*site + "-doorlock-controller").
+		SetClientID(clientId).
 		SetUsername(*mqttUser).
 		SetPassword(*mqttPass).
 		SetTLSConfig(tlsConfig).
@@ -74,7 +83,8 @@ func main() {
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		log.Fatalf("MQTT connection error: %v", token.Error())
 	}
-	log.Println("Connected to MQTT broker")
+
+	log.Println("Connected to MQTT broker as " + clientId)
 
 	matchSubTopic, _ := regexp.Compile(fmt.Sprintf("site/%s/room/([^/]+)/door/([^/]+)/cardreader/card-presented$", *site))
 

@@ -72,6 +72,9 @@ For TLS protected communication, provide the MQTT server's authority (to verify 
 `--site <mysite>`::
 To allow for better separation of concerns with a single MQTT broker, you need to specify the main component of the MQTT topic, your _site_ this daemon will take car of. Running multiple daemons allows linking different sites to different instances of Librebooking, if required.
 
+`--cient-suffix <suffix>`::
+By default, each instance appends an UUID to the MQTT client ID. This allows testing without affecting running agents (would get disconnected if using the same ID). With this option, a well-defined suffix can be forced, to create a recognizable and unique instance.
+
 ## Librebooking options
 
 `--db-host <host:port>`::

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
@@ -108,13 +109,13 @@ func main() {
 		}
 		log.Printf("Presented ID: %s", payload.ID)
 
-		reservation, err := checkReservation(db, room, payload.ID)
+		reservation, err := checkIn(db, room, payload.ID)
 		if err != nil {
 			log.Fatalf("DB error: %v", err)
 			return
 		}
 
-		if reservation.IsPresent {
+		if reservation.IsCheckedIn {
 			payloadPub, err := json.Marshal(DoorPayload{Open: true, User: reservation.Username})
 			if err != nil {
 				log.Fatalf("Internal JSON formatting error: %v", err)
@@ -154,21 +155,21 @@ func main() {
 	log.Println("Shutdown complete.")
 }
 
-type ReservationQueryResult struct {
-	IsPresent bool
-	Username  string
+type ReservationCheckinResult struct {
+	IsCheckedIn bool
+	Username    string
 }
 
-func noReservation() ReservationQueryResult {
-	return ReservationQueryResult{IsPresent: false}
+func noReservation() ReservationCheckinResult {
+	return ReservationCheckinResult{IsCheckedIn: false}
 }
 
-func reservation(username string) ReservationQueryResult {
-	return ReservationQueryResult{IsPresent: true, Username: username}
+func reservation(username string) ReservationCheckinResult {
+	return ReservationCheckinResult{IsCheckedIn: true, Username: username}
 }
 
-func checkReservation(db *sql.DB, room string, id string) (ReservationQueryResult, error) {
-	query := `select concat(u.fname, ' ', u.lname) as user from users u
+func checkIn(db *sql.DB, room string, id string) (ReservationCheckinResult, error) {
+	query := `select concat(u.fname, ' ', u.lname) as user, ri.reservation_instance_id as rid from users u
 		inner join reservation_users ru on ru.user_id = u.user_id and u.public_id = ?
 		inner join reservation_instances ri on ri.reservation_instance_id = ru.reservation_instance_id and ri.start_date <= UTC_TIMESTAMP() and ri.end_date > UTC_TIMESTAMP()
 		inner join reservation_resources rr on rr.series_id = ri.series_id
@@ -177,14 +178,26 @@ func checkReservation(db *sql.DB, room string, id string) (ReservationQueryResul
 		inner join reservation_statuses st on st.status_id = rs.status_id and st.label = 'Created'
 		limit 1`
 
+	row := db.QueryRow(query, id, room)
 	var username string
+	var rid int
 
-	if err := db.QueryRow(query, id, room).Scan(&username); err != nil {
+	if err := row.Scan(&username, &rid); err != nil {
 		if err == sql.ErrNoRows {
 			return noReservation(), nil
 		}
-		return noReservation(), err
+
+		log.Fatalf("DB error: %v", err.Error())
 	}
+
+	query = `update reservation_instances ri
+		set checkin_date = COALESCE(ri.checkin_date, UTC_TIMESTAMP())
+		where ri.reservation_instance_id = ?`
+
+	if _, err := db.ExecContext(context.Background(), query, rid); err != nil {
+		log.Fatalf("DB error: %v", err.Error())
+	}
+
 	return reservation(username), nil
 }
 

@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"regexp"
 	"syscall"
+	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	_ "github.com/go-sql-driver/mysql"
@@ -33,6 +34,9 @@ func main() {
 
 	site := flag.String("site", "mysite", `site name to form MQTT location "site/<site>/room/+/door/+/cardreader/card-presented"`)
 	clientSuffix := flag.String("client-suffix", "", `MQTT client name suffix, will use random UUID by default`)
+
+	var tolerance time.Duration
+	flag.DurationVar(&tolerance, "tolerance", 0, "allow entering before / after reservation period, adding the specified duration")
 
 	mqttBroker := flag.String("mqtt-broker", "ssl://mqtt:8883", "MQTT broker URI (e.g. ssl://mosquitto:8883)")
 	mqttUser := flag.String("mqtt-user", "", "MQTT username")
@@ -109,7 +113,7 @@ func main() {
 		}
 		log.Printf("Presented ID: %s", payload.ID)
 
-		reservation, err := checkIn(db, room, payload.ID)
+		reservation, err := checkIn(db, room, payload.ID, tolerance)
 		if err != nil {
 			log.Fatalf("DB error: %v", err)
 			return
@@ -168,17 +172,18 @@ func reservation(username string) ReservationCheckinResult {
 	return ReservationCheckinResult{IsCheckedIn: true, Username: username}
 }
 
-func checkIn(db *sql.DB, room string, id string) (ReservationCheckinResult, error) {
+func checkIn(db *sql.DB, room string, id string, tolerance time.Duration) (ReservationCheckinResult, error) {
 	query := `select concat(u.fname, ' ', u.lname) as user, ri.reservation_instance_id as rid from users u
-		inner join reservation_users ru on ru.user_id = u.user_id and u.public_id = ?
-		inner join reservation_instances ri on ri.reservation_instance_id = ru.reservation_instance_id and ri.start_date <= UTC_TIMESTAMP() and ri.end_date > UTC_TIMESTAMP()
-		inner join reservation_resources rr on rr.series_id = ri.series_id
-		inner join resources r on r.resource_id = rr.resource_id and r.name = ?
-		inner join reservation_series rs on rs.series_id = ri.series_id
-		inner join reservation_statuses st on st.status_id = rs.status_id and st.label = 'Created'
+		join reservation_users ru on ru.user_id = u.user_id and u.public_id = ?
+		join (select UTC_TIMESTAMP() as time, ? as tol) as rt
+		join reservation_instances ri on ri.reservation_instance_id = ru.reservation_instance_id and ri.start_date <= rt.time + INTERVAL rt.tol SECOND and ri.end_date > rt.time - INTERVAL rt.tol SECOND
+		join reservation_resources rr on rr.series_id = ri.series_id
+		join resources r on r.resource_id = rr.resource_id and r.name = ?
+		join reservation_series rs on rs.series_id = ri.series_id
+		join reservation_statuses st on st.status_id = rs.status_id and st.label = 'Created'
 		limit 1`
 
-	row := db.QueryRow(query, id, room)
+	row := db.QueryRow(query, id, int64(tolerance.Seconds()), room)
 	var username string
 	var rid int
 
